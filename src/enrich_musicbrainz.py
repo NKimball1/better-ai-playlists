@@ -8,8 +8,12 @@ Resumable: writes data/artist_genres.json after every lookup; rerunning
 skips artists already fetched. MusicBrainz requires 1 req/sec.
 """
 import json
+import re
 import sys
 import time
+
+# Windows consoles default to cp1252; artist names are unicode
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
 
 import requests
@@ -32,6 +36,12 @@ def lookup_artist(name: str) -> dict:
     resp.raise_for_status()
     hits = resp.json().get("artists", [])
     if not hits:
+        # names like "A$AP Ferg" break Lucene; retry sanitized once
+        clean = re.sub(r"[$]", "S", name)
+        clean = re.sub(r"[^\w\s'&.-]", " ", clean).strip()
+        if clean and clean.lower() != name.lower():
+            time.sleep(1.1)
+            return lookup_artist(clean)
         return {"matched": False, "reason": "no_results"}
     best = hits[0]
     if int(best.get("score", 0)) < MIN_SCORE:
