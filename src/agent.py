@@ -76,6 +76,39 @@ def _tool_defs(source: SourceMode) -> list[dict]:
             },
         },
         {
+            "name": "playlist_stats",
+            "description": (
+                "Free dry-run check of a candidate track list: total duration, "
+                "per-artist counts, year range, duplicates. Use this to verify "
+                "duration/count math BEFORE finalize_playlist - never sum "
+                "durations in your head."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {"track_ids": {"type": "array", "items": {"type": "string"}}},
+                "required": ["track_ids"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "report_infeasible",
+            "description": (
+                "Declare the request impossible to satisfy from the available "
+                "corpus, with evidence from your searches (e.g. 'spec needs 50 "
+                "tracks from 1995; library contains 1'). Only after searching "
+                "enough to prove it. This ends the task."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string"},
+                    "evidence": {"type": "string"},
+                },
+                "required": ["reason", "evidence"],
+                "additionalProperties": False,
+            },
+        },
+        {
             "name": "finalize_playlist",
             "description": (
                 "Submit the final ordered track id list. The deterministic validator "
@@ -124,10 +157,15 @@ and how you order it.
 Method:
 1. Probe the library with a few searches (tags for genre, query for names/artists).
 2. Build a candidate pool larger than you need, then select for the vibe and \
-constraints (watch max_per_artist and duration as you go - track durations are shown).
-3. Order tracks for flow (honor energy_arc if given), then call finalize_playlist.
-4. If the validator returns violations, fix exactly what it names - swap or trim \
+constraints.
+3. Check your candidate list with playlist_stats BEFORE finalizing - it does the \
+duration/count/artist-cap math for you. Adjust until stats fit the spec.
+4. Order tracks for flow (honor energy_arc if given), then call finalize_playlist.
+5. If the validator returns violations, fix exactly what it names - swap or trim \
 tracks - and finalize again. Do not start over.
+If searching proves the spec cannot be satisfied from the corpus (e.g. it demands \
+more matching tracks than exist), call report_infeasible with the evidence rather \
+than exhausting your budget.
 
 Budget: you have {budget} tool calls total. Searches are cheap early, expensive \
 late - keep roughly a third of your budget for the finalize/repair cycle.
@@ -145,6 +183,7 @@ class AgentRun:
         self.violations_history: list[list[dict]] = []
         self.final_track_ids: list[str] | None = None
         self.ordering_rationale: str = ""
+        self.infeasible_reason: str | None = None
         self.usage = {"input_tokens": 0, "output_tokens": 0}
         self.elapsed_s = 0.0
         self.outcome = "incomplete"  # clean | budget_exhausted | incomplete
@@ -193,6 +232,29 @@ def run_agent(spec: PlaylistSpec, spotify_client=None, verbose: bool = True) -> 
                     "artist_list": [a["name"] for a in t["artists"]],
                 }
             return _fmt_tracks(rows), False
+
+        if name == "playlist_stats":
+            from .library import get_tracks
+            ids = list(args.get("track_ids", []))
+            meta = {**get_tracks(ids), **{k: v for k, v in external_meta.items() if k in ids}}
+            known = [meta[t] for t in ids if t in meta]
+            total = sum(m["duration_ms"] for m in known) / 60000
+            primaries: dict[str, int] = {}
+            for m in known:
+                if m.get("artist_list"):
+                    primaries[m["artist_list"][0]] = primaries.get(m["artist_list"][0], 0) + 1
+            years = [m["year"] for m in known if m.get("year")]
+            dupes = len(ids) - len(set(ids))
+            top = sorted(primaries.items(), key=lambda x: -x[1])[:8]
+            return (f"tracks: {len(ids)} ({len(ids) - len(known)} unknown ids), "
+                    f"total: {total:.1f} min, duplicates: {dupes}, "
+                    f"years: {min(years) if years else '?'}-{max(years) if years else '?'}, "
+                    f"top primary artists: "
+                    + ", ".join(f"{a}x{n}" for a, n in top)), False
+
+        if name == "report_infeasible":
+            run.infeasible_reason = f"{args['reason']} | evidence: {args['evidence']}"
+            return "Infeasibility recorded. Task ended.", False
 
         if name == "finalize_playlist":
             run.finalize_attempts += 1
@@ -251,10 +313,12 @@ def run_agent(spec: PlaylistSpec, spotify_client=None, verbose: bool = True) -> 
                             "content": out, **({"is_error": True} if is_err else {})})
             if block.name == "finalize_playlist" and not is_err and run.final_track_ids:
                 done = True
+            if block.name == "report_infeasible":
+                done = True
         messages.append({"role": "user", "content": results})
 
         if done:
-            run.outcome = "clean"
+            run.outcome = "infeasible" if run.infeasible_reason else "clean"
             break
         if len(run.tool_calls) >= MAX_TOOL_CALLS or \
                 run.finalize_attempts >= MAX_FINALIZE_ATTEMPTS:

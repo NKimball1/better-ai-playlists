@@ -129,7 +129,21 @@ def main():
 
         run = run_agent(spec, spotify_client=sp, verbose=False)
         rec["agent"] = run.to_dict()
-        rec["agent_score"] = score_playlist(spec, run.final_track_ids or [])
+        if run.outcome == "infeasible":
+            # declaring infeasible is correct iff the golden set says so
+            ok = bool(p.get("expect_infeasible"))
+            rec["agent_score"] = {
+                "constraints_checked": 1, "constraints_failed": 0 if ok else 1,
+                "per_constraint": {"feasibility_call": "pass" if ok else "FAIL"},
+                "violations": [], "infeasible_reason": run.infeasible_reason}
+        elif p.get("expect_infeasible"):
+            # produced a playlist where it should have declared infeasibility
+            rec["agent_score"] = score_playlist(spec, run.final_track_ids or [])
+            rec["agent_score"]["per_constraint"]["feasibility_call"] = "FAIL"
+            rec["agent_score"]["constraints_checked"] += 1
+            rec["agent_score"]["constraints_failed"] += 1
+        else:
+            rec["agent_score"] = score_playlist(spec, run.final_track_ids or [])
         c = cost_of(run.usage, MODEL)
         total_cost += c
         first_attempt_clean = (run.violations_history
