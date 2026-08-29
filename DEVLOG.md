@@ -91,6 +91,35 @@ Full 30-prompt sweep with baseline + judge: **$1.43**.
 Public repo: https://github.com/NKimball1/better-ai-playlists
 (library snapshot, tokens, and run traces stay local — gitignored).
 
+### 10. The h28 saga (4-hour marathon prompt) — a case study in agent budgeting
+Post-fix rerun: 7/8 previously-failed prompts now pass (96% on the subset);
+`h27` correctly declares infeasibility with evidence. But `h28` ("4 hour
+liked-songs marathon, max 3 per artist") kept failing, each attempt exposing
+a different design flaw:
+
+1. **Flat tool budget** (30 calls) doesn't fit a ~65-track assembly.
+   Fix: budget scales with requested playlist size (240 min → 69 calls).
+2. **Flat repair budget** (4 finalize attempts): each round on a 65-track
+   list juggles more state; Haiku fixed one violation while creating another.
+   Fix: finalize attempts also scale with size.
+3. **Escape-hatch misuse**: given more attempts, the agent *declared the
+   feasible task infeasible* after 5 failed repairs — gave a model an out,
+   and under pressure it took it. The eval caught it (`feasibility_call:
+   FAIL` — lazy infeasibility claims are scored as failures). Fix: tool
+   description hardened — infeasibility requires counted evidence from
+   searches; "assembly is difficult" doesn't qualify. Next run it fought
+   honestly to budget exhaustion instead.
+4. **Spec-semantics bug**: ±5 min tolerance on a 240-min request (2%) is not
+   what "4 hour marathon" means. Fix: tolerance defaults proportional
+   (max(5 min, 4%)); the compiler sets it explicitly only when the user is
+   precise ("exactly an hour").
+
+After all four fixes Haiku still exhausts its budget (43 calls, 6 finalizes,
+3/4 constraints held, duration keeps missing). Standing conclusion: 60+ track
+joint-constraint assembly exceeds Haiku's working capacity in this loop.
+Model-tier experiment (same prompt on Opus 5) run to establish whether the
+ceiling is the model or the architecture.
+
 ## Open items
 - Re-run the 8 failed prompts post-fix; then full-sweep regression.
 - Judge calibration: ~10 owner hand-labels vs judge verdicts.

@@ -71,8 +71,11 @@ def validate(spec: PlaylistSpec, track_ids: list[str],
                            f"{h.track_count}; {verb} {diff}"))
     if h.target_duration_min is not None:
         total = sum(meta[t]["duration_ms"] for t in track_ids if t in meta) / 60000
-        lo = h.target_duration_min - h.duration_tolerance_min
-        hi = h.target_duration_min + h.duration_tolerance_min
+        # auto tolerance: "4 hours" implies more slack than "60 minutes"
+        tol = h.duration_tolerance_min if h.duration_tolerance_min is not None \
+            else max(5, round(h.target_duration_min * 0.04))
+        lo = h.target_duration_min - tol
+        hi = h.target_duration_min + tol
         if not (lo <= total <= hi):
             verb = "add" if total < lo else "remove"
             v.append(Violation(

@@ -27,7 +27,9 @@ class HardConstraints(BaseModel):
                                     description="exact number of tracks requested")
     target_duration_min: int | None = Field(None, ge=5,
                                             description="target playlist length in minutes")
-    duration_tolerance_min: int = Field(5, description="allowed +/- on target duration")
+    duration_tolerance_min: int | None = Field(
+        None, description="allowed +/- minutes on target duration; set ONLY if the "
+        "user states precision, else null = auto (max of 5 min or 4% of target)")
     year_min: int | None = None
     year_max: int | None = None
     max_per_artist: int | None = Field(None, ge=1)

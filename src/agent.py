@@ -28,8 +28,26 @@ load_dotenv()
 # (see eval results). Override with AGENT_MODEL=claude-opus-5 for the
 # quality-ceiling comparison.
 MODEL = os.environ.get("AGENT_MODEL", "claude-haiku-4-5")
-MAX_TOOL_CALLS = 30       # total tool-call budget
+BASE_TOOL_CALLS = 30       # tool-call budget for playlists up to ~30 tracks
 MAX_FINALIZE_ATTEMPTS = 4  # validator repair rounds
+
+
+def _tool_budget(spec: PlaylistSpec) -> int:
+    """Scale the budget with requested playlist size: assembling 60 tracks
+    legitimately takes more probing and repair than assembling 15."""
+    tracks = spec.hard.track_count or 0
+    if spec.hard.target_duration_min:
+        tracks = max(tracks, round(spec.hard.target_duration_min / 3.5))
+    return BASE_TOOL_CALLS + max(0, tracks - 30)
+
+
+def _finalize_budget(spec: PlaylistSpec) -> int:
+    """Repair rounds also scale with size: each round on a 60-track list
+    juggles far more state than on a 15-track list."""
+    tracks = spec.hard.track_count or 0
+    if spec.hard.target_duration_min:
+        tracks = max(tracks, round(spec.hard.target_duration_min / 3.5))
+    return MAX_FINALIZE_ATTEMPTS + max(0, tracks // 25)
 
 
 def _fmt_tracks(rows: list[dict]) -> str:
@@ -94,9 +112,13 @@ def _tool_defs(source: SourceMode) -> list[dict]:
             "name": "report_infeasible",
             "description": (
                 "Declare the request impossible to satisfy from the available "
-                "corpus, with evidence from your searches (e.g. 'spec needs 50 "
-                "tracks from 1995; library contains 1'). Only after searching "
-                "enough to prove it. This ends the task."
+                "corpus. ONLY valid when your searches PROVE fewer matching "
+                "tracks exist than the spec requires (e.g. 'spec needs 50 "
+                "tracks from 1995; library contains 1') - evidence must cite "
+                "counts from actual search results. 'Assembly is difficult' or "
+                "'repair attempts keep failing' is NOT infeasibility; a large "
+                "library almost always satisfies size/duration specs. Misusing "
+                "this counts as a failure. This ends the task."
             ),
             "input_schema": {
                 "type": "object",
@@ -162,7 +184,8 @@ constraints.
 duration/count/artist-cap math for you. Adjust until stats fit the spec.
 4. Order tracks for flow (honor energy_arc if given), then call finalize_playlist.
 5. If the validator returns violations, fix exactly what it names - swap or trim \
-tracks - and finalize again. Do not start over.
+tracks - and finalize again promptly. Do not start over, and do not keep \
+polishing with playlist_stats once the stats fit the spec: finalize.
 If searching proves the spec cannot be satisfied from the corpus (e.g. it demands \
 more matching tracks than exist), call report_infeasible with the evidence rather \
 than exhausting your budget.
@@ -262,7 +285,7 @@ def run_agent(spec: PlaylistSpec, spotify_client=None, verbose: bool = True) -> 
             violations = validate(spec, ids, external_meta)
             run.violations_history.append([v.to_dict() for v in violations])
             if violations:
-                if run.finalize_attempts >= MAX_FINALIZE_ATTEMPTS:
+                if run.finalize_attempts >= finalize_budget:
                     return ("VALIDATION FAILED (final attempt used):\n"
                             + "\n".join(f"- [{v.constraint}] {v.message}" for v in violations)), True
                 return ("VALIDATION FAILED - fix these and finalize again:\n"
@@ -273,8 +296,10 @@ def run_agent(spec: PlaylistSpec, spotify_client=None, verbose: bool = True) -> 
 
         return f"unknown tool {name}", True
 
+    budget = _tool_budget(spec)
+    finalize_budget = _finalize_budget(spec)
     tools = _tool_defs(spec.hard.source)
-    system = SYSTEM_TEMPLATE.format(overview=_library_overview(), budget=MAX_TOOL_CALLS)
+    system = SYSTEM_TEMPLATE.format(overview=_library_overview(), budget=budget)
     messages = [{"role": "user", "content":
                  "PlaylistSpec:\n" + json.dumps(spec.model_dump(mode="json"), indent=1)}]
 
@@ -320,8 +345,8 @@ def run_agent(spec: PlaylistSpec, spotify_client=None, verbose: bool = True) -> 
         if done:
             run.outcome = "infeasible" if run.infeasible_reason else "clean"
             break
-        if len(run.tool_calls) >= MAX_TOOL_CALLS or \
-                run.finalize_attempts >= MAX_FINALIZE_ATTEMPTS:
+        if len(run.tool_calls) >= budget or \
+                run.finalize_attempts >= finalize_budget:
             run.outcome = "budget_exhausted"
             break
 
