@@ -1,0 +1,460 @@
+<title>Better AI Playlists Evals</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --ring: rgba(11,11,11,0.10);
+    --accent: #1c5cab;
+    --agent: #2a78d6;
+    --base: #eb6834;
+    --good: #0ca30c;
+    --good-text: #006300;
+    --crit: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --ring: rgba(255,255,255,0.10);
+      --accent: #6da7ec;
+      --agent: #3987e5;
+      --base: #d95926;
+      --good: #0ca30c;
+      --good-text: #0ca30c;
+      --crit: #e66767;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --ring: rgba(255,255,255,0.10);
+    --accent: #6da7ec;
+    --agent: #3987e5;
+    --base: #d95926;
+    --good: #0ca30c;
+    --good-text: #0ca30c;
+    --crit: #e66767;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.55;
+    margin: 0;
+    padding: 0 20px 96px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  .prose { max-width: 66ch; }
+
+  h1, h2, .tile-num, .hero-claim {
+    font-family: "Bricolage Grotesque", "Arial Black", system-ui, sans-serif;
+  }
+  h1 { font-size: clamp(2.1rem, 5.5vw, 3.2rem); font-weight: 800; line-height: 1.04;
+       letter-spacing: -0.015em; margin: 0 0 14px; text-wrap: balance; }
+  h2 { font-size: 1.45rem; font-weight: 700; letter-spacing: -0.01em;
+       margin: 0 0 6px; text-wrap: balance; }
+  .eyebrow {
+    font-family: "Spline Sans Mono", ui-monospace, "Consolas", monospace;
+    font-size: 0.72rem; font-weight: 500; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 10px;
+  }
+  p { margin: 0 0 14px; color: var(--ink-2); }
+  p strong, li strong { color: var(--ink); }
+  a { color: var(--accent); }
+  section { margin-top: 72px; }
+  header.hero { padding-top: 72px; }
+  .lede { font-size: 1.12rem; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+           gap: 14px; margin-top: 34px; }
+  .tile { background: var(--surface); border: 1px solid var(--ring);
+          border-radius: 10px; padding: 20px 22px 17px; }
+  .tile-num { font-size: 2.5rem; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
+  .tile-num .unit { font-size: 1.3rem; color: var(--ink-2); font-weight: 700; }
+  .tile-label { margin-top: 8px; font-size: 0.9rem; color: var(--ink-2); line-height: 1.35; }
+
+  /* pipeline */
+  .pipe { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin: 22px 0 8px; }
+  .pipe-step { flex: 1 1 150px; background: var(--surface); border: 1px solid var(--ring);
+               border-radius: 8px; padding: 12px 14px; }
+  .pipe-step b { display: block; font-size: 0.92rem; color: var(--ink); }
+  .pipe-step span { font-size: 0.83rem; color: var(--ink-2); line-height: 1.35; display: block; margin-top: 3px; }
+  .pipe-arrow { align-self: center; color: var(--muted); flex: 0 0 auto; }
+
+  /* chart */
+  .chart { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px;
+           padding: 22px 24px 18px; margin-top: 20px; }
+  .chart-title { font-weight: 600; color: var(--ink); font-size: 0.98rem; margin-bottom: 2px; }
+  .chart-sub { font-size: 0.84rem; color: var(--muted); margin-bottom: 18px; }
+  .legend { display: flex; gap: 18px; font-size: 0.84rem; color: var(--ink-2); margin-bottom: 16px; }
+  .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+  .crow { display: grid; grid-template-columns: 168px 1fr; gap: 4px 14px; align-items: center;
+          padding: 7px 0; }
+  .crow + .crow { border-top: 1px solid var(--grid); }
+  .cname { font-size: 0.88rem; color: var(--ink); line-height: 1.25; }
+  .cname small { display: block; color: var(--muted); font-size: 0.76rem; }
+  .bars { display: grid; gap: 3px; }
+  .barline { display: grid; grid-template-columns: 1fr 64px; align-items: center; gap: 10px; }
+  .track { position: relative; height: 12px; background: transparent; }
+  .track::before { content: ""; position: absolute; inset: 0;
+                   border-left: 2px solid var(--baseline); }
+  .bar { position: absolute; top: 0; bottom: 0; left: 0;
+         border-radius: 0 4px 4px 0; min-width: 2px; cursor: default; }
+  .bar.agent { background: var(--agent); }
+  .bar.base  { background: var(--base); height: 8px; top: 2px; }
+  .bval { font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.78rem;
+          color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; }
+
+  .tooltip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink);
+             color: var(--page); font-size: 0.8rem; padding: 6px 10px; border-radius: 6px;
+             opacity: 0; transition: opacity 0.12s; max-width: 260px; line-height: 1.35; }
+  @media (prefers-reduced-motion: reduce) { .tooltip { transition: none; } }
+
+  /* case study */
+  ol.saga { list-style: none; counter-reset: saga; margin: 24px 0 0; padding: 0; }
+  ol.saga li { counter-increment: saga; position: relative; padding: 0 0 22px 52px; }
+  ol.saga li::before {
+    content: counter(saga); position: absolute; left: 0; top: -2px;
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--surface); border: 1px solid var(--ring);
+    font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.85rem;
+    display: grid; place-items: center; color: var(--accent); font-weight: 600;
+  }
+  ol.saga li:not(:last-child)::after {
+    content: ""; position: absolute; left: 15px; top: 34px; bottom: 2px;
+    border-left: 1px solid var(--grid);
+  }
+  ol.saga b { color: var(--ink); }
+  ol.saga p { margin: 2px 0 0; font-size: 0.95rem; }
+
+  /* calibration table */
+  table { border-collapse: collapse; width: 100%; margin-top: 18px; font-size: 0.92rem; }
+  th { text-align: left; font-family: "Spline Sans Mono", ui-monospace, monospace;
+       font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase;
+       color: var(--muted); font-weight: 500; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--baseline); }
+  td { padding: 8px 12px 8px 0; border-bottom: 1px solid var(--grid); color: var(--ink-2);
+       font-variant-numeric: tabular-nums; }
+  td:first-child { font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.83rem; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 0.8rem;
+          padding: 2px 9px; border-radius: 999px; border: 1px solid var(--ring); color: var(--ink); }
+  .chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; }
+  .chip.agree::before { background: var(--good); }
+  .chip.differ::before { background: var(--crit); }
+  .num { font-variant-numeric: tabular-nums; }
+  .tbl-scroll { overflow-x: auto; }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--surface);
+             border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0; }
+  .callout p { margin: 0; font-size: 0.97rem; }
+
+  footer { margin-top: 88px; padding-top: 20px; border-top: 1px solid var(--grid);
+           font-size: 0.85rem; color: var(--muted); }
+  footer a { color: var(--muted); }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@700;800&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=Spline+Sans+Mono:wght@400;500;600&display=swap">
+
+<div class="wrap">
+
+<header class="hero">
+  <p class="eyebrow">Eval report &middot; Better AI Playlists</p>
+  <h1>The playlist agent that keeps its promises</h1>
+  <div class="prose">
+    <p class="lede">Spotify's AI playlist ignores requests like <em>"only use songs I've
+    already liked."</em> This project compiles that request into a typed constraint,
+    enforces it with code instead of a prompt, and measures the result against a
+    naive one-shot LLM on a 30-prompt golden set &mdash; same spec, same validator, same
+    yardstick.</p>
+  </div>
+  <div class="tiles">
+    <div class="tile">
+      <div class="tile-num">99<span class="unit">%</span></div>
+      <div class="tile-label">hard-constraint checks passed (98/99), vs 57.6% for the
+      one-shot baseline</div>
+    </div>
+    <div class="tile">
+      <div class="tile-num">0<span class="unit">/25</span></div>
+      <div class="tile-label">baseline pass rate on "liked songs only" &mdash; the agent's
+      score: 25/25</div>
+    </div>
+    <div class="tile">
+      <div class="tile-num">$0.05</div>
+      <div class="tile-label">typical agent run (Haiku 4.5 + prompt caching);
+      large assemblies route to Opus</div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <p class="eyebrow">Method</p>
+  <h2>What gets measured, and by what</h2>
+  <div class="prose">
+    <p>The architecture splits every request into <strong>hard constraints</strong>
+    (source, counts, durations, year ranges, artist caps &mdash; enforced by a deterministic
+    validator, zero LLM) and <strong>soft intent</strong> (vibe, flow &mdash; the agent's
+    quality bar). The eval mirrors that split: constraints are <em>measured</em>,
+    aesthetics are <em>judged</em>, and the judge itself gets audited.</p>
+  </div>
+  <div class="pipe">
+    <div class="pipe-step"><b>Compile</b><span>prompt &rarr; typed spec; fields checked
+      against golden expectations (30/30 correct)</span></div>
+    <div class="pipe-arrow">&rarr;</div>
+    <div class="pipe-step"><b>Agent loop</b><span>gated tools, budgets scaled to
+      playlist size, validator repair cycle</span></div>
+    <div class="pipe-arrow">&rarr;</div>
+    <div class="pipe-step"><b>Score</b><span>validator re-checks every constraint on
+      the final playlist &mdash; and on the baseline's</span></div>
+    <div class="pipe-arrow">&rarr;</div>
+    <div class="pipe-step"><b>Judge + audit</b><span>pairwise vibe judge, then
+      calibrated against blinded owner labels</span></div>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">Results</p>
+  <h2>Constraint satisfaction by type</h2>
+  <div class="prose">
+    <p>Pass rate per constraint type across the golden set, after the repair-loop and
+    budget fixes. The baseline doesn't fail because it picks badly &mdash; it fails because
+    without library access and a validator, most of these constraints are
+    unenforceable.</p>
+  </div>
+
+  <div class="chart" id="chart">
+    <div class="chart-title">Hard-constraint pass rate &mdash; agent vs. one-shot baseline</div>
+    <div class="chart-sub">30 golden prompts &middot; hover a bar for detail</div>
+    <div class="legend">
+      <span><span class="key" style="background: var(--agent)"></span>Agent</span>
+      <span><span class="key" style="background: var(--base)"></span>Baseline (one LLM call)</span>
+    </div>
+    <div id="rows"></div>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">The repair loop</p>
+  <h2>Nearly half of correct results were rescued</h2>
+  <div class="prose">
+    <p>Only <strong>53% of runs validated clean on the first attempt</strong>. The rest
+    shipped correct because the validator returned specific, actionable violations
+    ("Future appears 3 times as primary artist, max is 2; remove 1") and the agent
+    repaired them &mdash; up to its attempt budget. That gap between 53% and 99% is the
+    measured value of deterministic validation.</p>
+    <p>It's also what makes the cheap model safe: Haiku sometimes needs three repair
+    rounds where Opus needs one, but the validator converts model weakness into
+    latency instead of wrong playlists. Model choice became a cost knob, not a
+    correctness risk.</p>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">Case study</p>
+  <h2>One adversarial prompt, four design flaws</h2>
+  <div class="prose">
+    <p>"A 4-hour liked-songs marathon, max 3 per artist" &mdash; a ~65-track assembly &mdash;
+    failed repeatedly, and each failure exposed a different flaw. This sequence is the
+    project's best argument that evals drive design:</p>
+  </div>
+  <ol class="saga">
+    <li><b>Flat tool budget.</b><p>30 calls fits a 20-track playlist, not a 65-track one.
+      Fix: budgets scale with the assembly size the spec implies.</p></li>
+    <li><b>Arithmetic in the model's head.</b><p>Haiku mis-summed durations across
+      combos and burned repair attempts. Fix: a free <code>playlist_stats</code>
+      calculator tool &mdash; agents get calculators, not mental math.</p></li>
+    <li><b>Escape-hatch misuse.</b><p>Given a <code>report_infeasible</code> tool, the
+      agent declared a <em>feasible</em> task impossible after five failed repairs.
+      The eval caught it &mdash; lazy infeasibility claims score as failures. Fix: the tool
+      demands counted evidence from searches; "assembly is difficult" doesn't qualify.</p></li>
+    <li><b>Spec semantics.</b><p>&plusmn;5 minutes on a 240-minute request is not what
+      "4-hour marathon" means. Fix: duration tolerance defaults proportional; the
+      compiler pins it only when the user is precise.</p></li>
+  </ol>
+  <div class="callout"><p><strong>Resolution:</strong> after all four fixes, Haiku still
+  exhausted its budget &mdash; but Opus 5 solved the same prompt on its first finalize:
+  13 tool calls, 69 tracks, 239.2 of 240 minutes, zero violations, $0.63. The spec
+  reveals assembly size before any spend, so this shipped as free model routing:
+  &le;40 tracks &rarr; Haiku, larger &rarr; Opus.</p></div>
+</section>
+
+<section>
+  <p class="eyebrow">Judge audit</p>
+  <h2>The judge preferred famous songs. The owner didn't.</h2>
+  <div class="prose">
+    <p>A pairwise LLM judge compared agent vs. baseline playlists on pure vibe fit and
+    scored it close (12&ndash;10). Before trusting that, the judge was calibrated against
+    ground truth: <strong>10 blinded pairs labeled by the library's owner</strong>.</p>
+    <p>The owner preferred the agent's playlist <strong>7 times, called 3 ties, and
+    never once picked the baseline</strong>. The judge agreed with the owner only
+    <strong>4/10</strong> &mdash; and in 5 of the 6 disagreements it favored the baseline's
+    canonical, well-known tracks. Conclusion: the judge carries a popularity bias and
+    is reported as context only; the measured constraint numbers stay the headline.</p>
+  </div>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Pair</th><th>Owner pick</th><th>Judge pick</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td>g15</td><td>Agent</td><td>Agent</td><td><span class="chip agree">agree</span></td></tr>
+      <tr><td>g07</td><td>Agent</td><td>Agent</td><td><span class="chip agree">agree</span></td></tr>
+      <tr><td>g18</td><td>Agent</td><td>Agent</td><td><span class="chip agree">agree</span></td></tr>
+      <tr><td>d24</td><td>Agent</td><td>Agent</td><td><span class="chip agree">agree</span></td></tr>
+      <tr><td>d25</td><td>Tie</td><td>Baseline</td><td><span class="chip differ">differ</span></td></tr>
+      <tr><td>g06</td><td>Agent</td><td>Baseline</td><td><span class="chip differ">differ</span></td></tr>
+      <tr><td>g16</td><td>Tie</td><td>Agent</td><td><span class="chip differ">differ</span></td></tr>
+      <tr><td>g13</td><td>Agent</td><td>Baseline</td><td><span class="chip differ">differ</span></td></tr>
+      <tr><td>a21</td><td>Agent</td><td>Baseline</td><td><span class="chip differ">differ</span></td></tr>
+      <tr><td>g12</td><td>Tie</td><td>Baseline</td><td><span class="chip differ">differ</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p style="margin-top: 14px; font-size: 0.9rem;"><em>Caveat, recorded honestly:
+    blinding was imperfect &mdash; the owner sometimes recognized their own library, so
+    owner preference partly measures familiarity. For a personal-playlist product,
+    that is arguably the point.</em></p>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">Cost</p>
+  <h2>What the numbers cost to produce</h2>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Item</th><th>Cost</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Typical agent run</td><td class="num">~$0.05</td><td>Haiku 4.5, prompt caching on every loop turn</td></tr>
+      <tr><td>Large-assembly run (Opus route)</td><td class="num">~$0.63</td><td>60+ track playlists</td></tr>
+      <tr><td>Full 30-prompt sweep + baseline + judge</td><td class="num">$1.43</td><td>the headline numbers above</td></tr>
+      <tr><td>Entire eval program to date</td><td class="num">~$7</td><td>smoke runs, sweep, failure-chasing, model experiment</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p style="margin-top: 14px;">First Opus-only prototype ran ~$0.40/run; caching plus
+    validator-backed model downgrade cut it 8&times;, measured before adoption.</p>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">Limitations</p>
+  <h2>Known limits, stated plainly</h2>
+  <div class="prose">
+    <ul style="color: var(--ink-2); padding-left: 20px; margin: 0;">
+      <li style="margin-bottom: 8px;">One standing constraint miss (a22: duration under a
+        60-minute + artist-cap + library-adjacent combo).</li>
+      <li style="margin-bottom: 8px;">MusicBrainz enrichment covers 93% of artists / 81% of
+        tracks; same-name collisions slip through (a house trio matched a rockabilly band),
+        and A$AP Ferg resists every query sanitization so far.</li>
+      <li style="margin-bottom: 8px;">The vibe judge is popularity-biased (4/10 owner
+        agreement) and demoted to context; a better judge would need audio-level features
+        Spotify no longer exposes.</li>
+      <li>Single-user evaluation by design &mdash; Spotify dev mode allows 5 users, and the
+        golden set encodes one owner's library.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  Better AI Playlists &middot; <a href="https://github.com/NKimball1/better-ai-playlists">github.com/NKimball1/better-ai-playlists</a>
+  &middot; constraint pass rates re-scored by the deterministic validator; judge = Haiku 4.5 pairwise,
+  position-randomized; full traces and per-prompt records in the repo's eval harness.
+</footer>
+
+</div>
+
+<div class="tooltip" id="tip" role="status"></div>
+
+<script>
+  const DATA = [
+    { name: "Liked songs only", note: "the original complaint", agent: [25, 25], base: [0, 25],
+      tip: "Every track must come from the user's saved library. Baseline has no library access; the agent's search tool is restricted to it by policy." },
+    { name: "Year range", agent: [5, 5], base: [1, 5],
+      tip: "Release-year windows like '2016-2018 only.' Validator checks album release dates." },
+    { name: "Duration target", agent: [9, 10], base: [0, 10],
+      tip: "e.g. '90 minutes' +/- proportional tolerance. The one standing agent miss (a22) lives here." },
+    { name: "Exclude artists", agent: [4, 4], base: [2, 4],
+      tip: "'Nothing from Drake' - features count too, not just primary artist." },
+    { name: "Artist cap", note: "max N per artist", agent: [5, 5], base: [4, 5],
+      tip: "'Max 2 songs per artist' - counted on primary artist." },
+    { name: "Track count", agent: [16, 16], base: [17, 17],
+      tip: "Exact counts like '20 songs.' The baseline can always emit N lines - count is the one constraint one-shot generation satisfies natively." },
+    { name: "Must-include artists", agent: [3, 3], base: [3, 3],
+      tip: "'At least one Juice WRLD song' - satisfied by primary or feature credit." },
+    { name: "No duplicates", agent: [30, 30], base: [30, 30],
+      tip: "Checked on every playlist regardless of prompt." },
+    { name: "Feasibility call", note: "declining impossible asks", agent: [1, 1], base: null,
+      tip: "'50 liked songs from 1995' (the library holds one): the agent must prove and declare infeasibility. Not applicable to the baseline - it has no way to know." },
+  ];
+
+  const rows = document.getElementById("rows");
+  const tip = document.getElementById("tip");
+
+  function bar(cls, frac, label, tipText) {
+    const t = document.createElement("div");
+    t.className = "barline";
+    const track = document.createElement("div");
+    track.className = "track";
+    const b = document.createElement("div");
+    b.className = "bar " + cls;
+    b.style.width = Math.max(frac * 100, 0.8) + "%";
+    b.setAttribute("tabindex", "0");
+    b.addEventListener("mousemove", e => {
+      tip.textContent = tipText;
+      tip.style.opacity = 1;
+      tip.style.left = Math.min(e.clientX + 14, window.innerWidth - 280) + "px";
+      tip.style.top = (e.clientY + 14) + "px";
+    });
+    b.addEventListener("mouseleave", () => { tip.style.opacity = 0; });
+    track.appendChild(b);
+    const v = document.createElement("div");
+    v.className = "bval";
+    v.textContent = label;
+    t.appendChild(track); t.appendChild(v);
+    return t;
+  }
+
+  for (const d of DATA) {
+    const row = document.createElement("div");
+    row.className = "crow";
+    const name = document.createElement("div");
+    name.className = "cname";
+    name.innerHTML = d.name + (d.note ? "<small>" + d.note + "</small>" : "");
+    const bars = document.createElement("div");
+    bars.className = "bars";
+    bars.appendChild(bar("agent", d.agent[0] / d.agent[1],
+      d.agent[0] + "/" + d.agent[1],
+      "Agent - " + d.name + ": " + d.agent[0] + "/" + d.agent[1] + ". " + d.tip));
+    if (d.base) {
+      bars.appendChild(bar("base", d.base[0] / d.base[1],
+        d.base[0] + "/" + d.base[1],
+        "Baseline - " + d.name + ": " + d.base[0] + "/" + d.base[1] + ". " + d.tip));
+    } else {
+      const na = document.createElement("div");
+      na.className = "barline";
+      na.innerHTML = '<div style="font-size:0.78rem;color:var(--muted);">n/a for baseline</div><div></div>';
+      bars.appendChild(na);
+    }
+    row.appendChild(name); row.appendChild(bars);
+    rows.appendChild(row);
+  }
+</script>
