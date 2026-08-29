@@ -23,11 +23,25 @@ from .validator import validate
 
 load_dotenv()
 
-# Haiku 4.5 by default: the deterministic validator catches selection
-# mistakes, so the loop tolerates a cheaper model - measured, not assumed
-# (see eval results). Override with AGENT_MODEL=claude-opus-5 for the
-# quality-ceiling comparison.
+# Model routing, measured not assumed (devlog #10-11): Haiku 4.5 handles
+# <=40-track assemblies at ~$0.05/run because the validator catches its
+# mistakes; 60+ track joint-constraint assemblies exceed its working
+# capacity (4 failed attempts) while Opus one-shots them ($0.63).
+# AGENT_MODEL env var overrides routing entirely.
 MODEL = os.environ.get("AGENT_MODEL", "claude-haiku-4-5")
+BIG_ASSEMBLY_MODEL = "claude-opus-5"
+BIG_ASSEMBLY_TRACKS = 40
+
+
+def _route_model(spec: PlaylistSpec) -> str:
+    if os.environ.get("AGENT_MODEL"):
+        return MODEL  # explicit override wins
+    tracks = spec.hard.track_count or 0
+    if spec.hard.target_duration_min:
+        tracks = max(tracks, round(spec.hard.target_duration_min / 3.5))
+    return BIG_ASSEMBLY_MODEL if tracks > BIG_ASSEMBLY_TRACKS else MODEL
+
+
 BASE_TOOL_CALLS = 30       # tool-call budget for playlists up to ~30 tracks
 MAX_FINALIZE_ATTEMPTS = 4  # validator repair rounds
 
@@ -209,7 +223,8 @@ class AgentRun:
         self.infeasible_reason: str | None = None
         self.usage = {"input_tokens": 0, "output_tokens": 0}
         self.elapsed_s = 0.0
-        self.outcome = "incomplete"  # clean | budget_exhausted | incomplete
+        self.outcome = "incomplete"  # clean | infeasible | budget_exhausted | incomplete
+        self.model = MODEL
 
     def to_dict(self):
         return self.__dict__.copy()
@@ -218,7 +233,9 @@ class AgentRun:
 def run_agent(spec: PlaylistSpec, spotify_client=None, verbose: bool = True) -> AgentRun:
     """Execute the agent loop. spotify_client only needed outside liked_only."""
     client = anthropic.Anthropic()
+    model = _route_model(spec)
     run = AgentRun()
+    run.model = model
     t0 = time.time()
 
     # cache of non-library track metadata from spotify search, for the validator
@@ -305,7 +322,7 @@ def run_agent(spec: PlaylistSpec, spotify_client=None, verbose: bool = True) -> 
 
     while True:
         response = client.messages.create(
-            model=MODEL, max_tokens=16000, system=system,
+            model=model, max_tokens=16000, system=system,
             tools=tools, messages=messages,
             # auto-cache the conversation prefix: every turn after the first
             # re-reads prior turns at ~10% of input price

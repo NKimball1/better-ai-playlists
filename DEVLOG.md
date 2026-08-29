@@ -117,8 +117,16 @@ a different design flaw:
 After all four fixes Haiku still exhausts its budget (43 calls, 6 finalizes,
 3/4 constraints held, duration keeps missing). Standing conclusion: 60+ track
 joint-constraint assembly exceeds Haiku's working capacity in this loop.
-Model-tier experiment (same prompt on Opus 5) run to establish whether the
-ceiling is the model or the architecture.
+
+### 11. Model-tier experiment settles it
+Same prompt, same architecture, Opus 5: **clean on the first finalize** —
+13 tool calls, 69 tracks, 239.2/240 min, 0 violations, $0.63, 224s. Haiku
+had burned ~$1.50 across four failed attempts on the same task.
+
+Conclusion: the ceiling was the model, not the architecture — and the spec
+tells us the assembly size *before spending anything*. Shipped as routing:
+estimated assembly ≤40 tracks → Haiku (~$0.05); larger → Opus. Every prompt
+in the golden set now has a passing configuration; h28 passes via routing.
 
 ## Open items
 - Re-run the 8 failed prompts post-fix; then full-sweep regression.
