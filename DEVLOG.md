@@ -128,6 +128,22 @@ tells us the assembly size *before spending anything*. Shipped as routing:
 estimated assembly ≤40 tracks → Haiku (~$0.05); larger → Opus. Every prompt
 in the golden set now has a passing configuration; h28 passes via routing.
 
+### 12. Judge calibration against owner labels
+10 blinded pairs (agent vs baseline, order randomized), labeled by the
+library owner on pure vibe fit:
+
+- **Owner blind preference: agent 7, tie 3, baseline 0.** The baseline's
+  famous-song picks lost every time ("I don't like Lizzo").
+- **Judge agreement with owner: 4/10** — near coin-flip. In 5 of 6
+  disagreements the judge preferred the baseline: it recognizes canonical
+  tracks and scores them as "coherent," a systematic popularity bias.
+
+Consequence: the judge's earlier 12–10 verdict is downgraded to
+context-only; **constraint satisfaction (measured, 99%) is the headline
+metric**. Caveat recorded: blinding was imperfect — the owner sometimes
+recognized their own library, so owner preference partly measures
+familiarity (for a personal-playlist product, arguably the point).
+
 ## Open items
 - Re-run the 8 failed prompts post-fix; then full-sweep regression.
 - Judge calibration: ~10 owner hand-labels vs judge verdicts.
