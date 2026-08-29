@@ -20,7 +20,7 @@ import sys
 import time
 from pathlib import Path
 
-from src.compiler import compile_spec
+from src.compiler import compile_spec_with_usage, COMPILER_MODEL
 from src.agent import run_agent, MODEL
 from src.spec import PlaylistSpec, SourceMode
 from src.validator import validate
@@ -121,8 +121,11 @@ def main():
         print(f"--- {p['id']} [{p['category']}]: {p['prompt'][:70]}...")
         rec = {"id": p["id"], "category": p["category"], "prompt": p["prompt"]}
 
-        spec = compile_spec(p["prompt"])
+        spec, compile_usage = compile_spec_with_usage(p["prompt"])
         rec["spec"] = spec.model_dump(mode="json")
+        rec["compiler_usage"] = compile_usage
+        cc = cost_of(compile_usage, COMPILER_MODEL)
+        total_cost += cc
         rec["compiler_misses"] = check_compiler(spec, p["expect"])
         if rec["compiler_misses"]:
             print(f"    compiler MISS: {rec['compiler_misses']}")
@@ -144,7 +147,7 @@ def main():
             rec["agent_score"]["constraints_failed"] += 1
         else:
             rec["agent_score"] = score_playlist(spec, run.final_track_ids or [])
-        c = cost_of(run.usage, MODEL)
+        c = cost_of(run.usage, run.model)  # routing may have picked a different tier
         total_cost += c
         first_attempt_clean = (run.violations_history
                                and not run.violations_history[0])

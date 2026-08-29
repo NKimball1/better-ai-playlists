@@ -29,7 +29,22 @@ they named a length of time."""
 _client = None
 
 
+COMPILER_MODEL = "claude-opus-5"
+
+
+def compile_spec_with_usage(prompt: str) -> tuple[PlaylistSpec, dict]:
+    """compile_spec plus token usage, so eval cost accounting sees the
+    compiler call - it runs on Opus and was ~20% of real spend before
+    this existed (devlog: found by auditing the bill by hand)."""
+    spec, usage = _compile(prompt)
+    return spec, usage
+
+
 def compile_spec(prompt: str) -> PlaylistSpec:
+    return _compile(prompt)[0]
+
+
+def _compile(prompt: str) -> tuple[PlaylistSpec, dict]:
     global _client
     if _client is None:
         import os
@@ -38,10 +53,13 @@ def compile_spec(prompt: str) -> PlaylistSpec:
             headers["anthropic-workspace-id"] = os.environ["ANTHROPIC_WORKSPACE_ID"]
         _client = anthropic.Anthropic(default_headers=headers or None)
     response = _client.messages.parse(
-        model="claude-opus-5",
+        model=COMPILER_MODEL,
         max_tokens=4000,
         system=SYSTEM,
         messages=[{"role": "user", "content": prompt}],
         output_format=PlaylistSpec,
     )
-    return response.parsed_output
+    return response.parsed_output, {
+        "input_tokens": response.usage.input_tokens,
+        "output_tokens": response.usage.output_tokens,
+    }

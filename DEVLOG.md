@@ -149,3 +149,12 @@ familiarity (for a personal-playlist product, arguably the point).
 - Judge calibration: ~10 owner hand-labels vs judge verdicts.
 - HTML eval report.
 - Maybe: embeddings for semantic retrieval (tags+FTS have been sufficient so far).
+
+### 13. Cost telemetry audit
+Hand-auditing the ~$6 total spend against recorded eval costs surfaced a gap:
+`total_cost_usd` counted agent + baseline + judge tokens but not the Opus
+constraint-compiler call that starts every run — ~20% of true spend,
+invisible in the telemetry. Fixed: compiler usage is now recorded per prompt
+and priced in, and agent runs are priced by the model routing actually chose
+(a routed Opus run was previously priced as Haiku). Lesson: cost telemetry
+is a measurement system too, and it needs auditing like any other.
