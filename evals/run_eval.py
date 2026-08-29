@@ -29,19 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 GOLDEN = json.loads((ROOT / "evals" / "golden_prompts.json").read_text(encoding="utf-8"))
 OUT_BASE = ROOT / "data" / "eval_runs"
 
-# $/M tokens for cost accounting
-PRICES = {
-    "claude-haiku-4-5": (1.0, 5.0, 1.25, 0.10),
-    "claude-opus-5": (5.0, 25.0, 6.25, 0.50),
-}
-
-
-def cost_of(usage: dict, model: str) -> float:
-    inp, out, cw, cr = PRICES.get(model, PRICES["claude-haiku-4-5"])
-    return (usage.get("input_tokens", 0) * inp
-            + usage.get("output_tokens", 0) * out
-            + usage.get("cache_write", 0) * cw
-            + usage.get("cache_read", 0) * cr) / 1e6
+from src.costs import cost_of, log_cost
 
 
 def check_compiler(spec: PlaylistSpec, expect: dict) -> list[str]:
@@ -124,7 +112,7 @@ def main():
         spec, compile_usage = compile_spec_with_usage(p["prompt"])
         rec["spec"] = spec.model_dump(mode="json")
         rec["compiler_usage"] = compile_usage
-        cc = cost_of(compile_usage, COMPILER_MODEL)
+        cc = log_cost("compiler", "eval:" + p["id"], COMPILER_MODEL, compile_usage)
         total_cost += cc
         rec["compiler_misses"] = check_compiler(spec, p["expect"])
         if rec["compiler_misses"]:
@@ -147,7 +135,7 @@ def main():
             rec["agent_score"]["constraints_failed"] += 1
         else:
             rec["agent_score"] = score_playlist(spec, run.final_track_ids or [])
-        c = cost_of(run.usage, run.model)  # routing may have picked a different tier
+        c = log_cost("eval", "agent:" + p["id"], run.model, run.usage)
         total_cost += c
         first_attempt_clean = (run.violations_history
                                and not run.violations_history[0])
@@ -165,7 +153,7 @@ def main():
             # so the validator counts them as source violations
             fake = [f"NOT_IN_LIBRARY_{i}" for i in range(len(b["unresolved"]))]
             rec["baseline_score"] = score_playlist(spec, b["track_ids"] + fake)
-            bc = cost_of(b["usage"], MODEL)
+            bc = log_cost("eval", "baseline:" + p["id"], MODEL, b["usage"])
             total_cost += bc
             print(f"    baseline: failed {rec['baseline_score']['constraints_failed']}"
                   f"/{rec['baseline_score']['constraints_checked']} constraints "

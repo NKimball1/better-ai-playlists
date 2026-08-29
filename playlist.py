@@ -9,7 +9,8 @@ import sys
 from pathlib import Path
 
 from src.agent import run_agent
-from src.compiler import compile_spec
+from src.compiler import compile_spec_with_usage, COMPILER_MODEL
+from src.costs import ledger_total, log_cost
 from src.library import get_tracks
 from src.spec import SourceMode
 
@@ -25,7 +26,8 @@ def main():
     prompt = args[0]
 
     print("Compiling constraints...")
-    spec = compile_spec(prompt)
+    spec, compile_usage = compile_spec_with_usage(prompt)
+    compile_cost = log_cost("compiler", prompt, COMPILER_MODEL, compile_usage)
     print(json.dumps(spec.model_dump(mode="json"), indent=1))
 
     sp = None
@@ -36,9 +38,14 @@ def main():
     print("\nRunning agent...")
     run = run_agent(spec, spotify_client=sp)
 
+    agent_cost = log_cost("playlist", prompt, run.model, run.usage)
+    total, n = ledger_total()
     print(f"\noutcome={run.outcome} tool_calls={len(run.tool_calls)} "
           f"finalize_attempts={run.finalize_attempts} "
-          f"tokens={run.usage} elapsed={run.elapsed_s}s")
+          f"model={run.model} elapsed={run.elapsed_s}s")
+    print(f"cost: ${agent_cost + compile_cost:.3f} this run "
+          f"(compile ${compile_cost:.3f} + agent ${agent_cost:.3f}) "
+          f"| ledger total ${total:.2f} across {n} entries")
 
     if not run.final_track_ids:
         print("No valid playlist produced.")
